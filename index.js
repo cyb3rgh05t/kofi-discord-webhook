@@ -1,4 +1,4 @@
-// Enhanced Ko-fi to Discord webhook integration with improved config loading
+// Enhanced Ko-fi to Discord webhook integration with multiple languages
 import express from "express";
 import { createServer } from "http";
 import { Webhook, MessageBuilder } from "discord-webhook-node";
@@ -89,6 +89,7 @@ const translations = {
     "First Payment": "First Payment",
     Date: "Date",
     "Transaction ID": "Transaction ID",
+    Message: "Message",
 
     // Status messages
     Yes: "Yes",
@@ -117,6 +118,7 @@ const translations = {
     "First Payment": "Erste Zahlung",
     Date: "Datum",
     "Transaction ID": "Transaktions-ID",
+    Message: "Nachricht",
 
     // Status messages
     Yes: "Ja",
@@ -124,8 +126,7 @@ const translations = {
     Anonymous: "Anonym",
 
     // UI messages
-    "New {KOFI_NAME} Support Received!":
-      "Neue {KOFI_NAME} Unterstützung erhalten!",
+    "New {KOFI_NAME} Support Received!": "Neue {KOFI_NAME} Spende erhalten!",
     "has subscribed to the": "hat die",
     "tier!": "Stufe abonniert!",
     "Thanks for the support!": "Vielen Dank für die Unterstützung!",
@@ -146,6 +147,7 @@ const translations = {
     "First Payment": "Premier paiement",
     Date: "Date",
     "Transaction ID": "ID de transaction",
+    Message: "Message",
 
     // Status messages
     Yes: "Oui",
@@ -193,20 +195,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configuration info endpoint
-app.get("/config", (req, res) => {
-  res.status(200).json({
-    configLoaded: configPath !== null,
-    configPath: configPath,
-    language: LANGUAGE,
-    kofiName: KOFI_NAME,
-    port: PORT,
-    hasWebhookUrl: !!WEBHOOK_URL,
-    hasVerificationToken: !!VERIFICATION_TOKEN,
-  });
-});
-
-// Root endpoint
+// Root endpoint - DEFINED FIRST to ensure it's not blocked by other routes
 app.get("/", (req, res) => {
   console.log("Root endpoint accessed");
   res.status(200).json({
@@ -223,6 +212,19 @@ app.get("/health", (req, res) => {
     message: `${KOFI_NAME} to Discord webhook service is running`,
     language: LANGUAGE,
     kofiName: KOFI_NAME,
+  });
+});
+
+// Configuration info endpoint
+app.get("/config", (req, res) => {
+  res.status(200).json({
+    configLoaded: configPath !== null,
+    configPath: configPath,
+    language: LANGUAGE,
+    kofiName: KOFI_NAME,
+    port: PORT,
+    hasWebhookUrl: !!WEBHOOK_URL,
+    hasVerificationToken: !!VERIFICATION_TOKEN,
   });
 });
 
@@ -380,7 +382,7 @@ app.post("/webhook", async (req, res) => {
     // Determine if it's a subscription
     const isSubscription =
       kofiData.type === "Subscription" ||
-      kofiData.type === t("Subscription") ||
+      kofiData.type === "Abo" ||
       kofiData.is_subscription_payment;
 
     // Get translated type
@@ -394,19 +396,25 @@ app.post("/webhook", async (req, res) => {
         )}`
       )
       .setColor(getColor(kofiData))
-      .setThumbnail(KOFI_LOGO)
-      .setDescription(
-        kofiData.message
-          ? `"${kofiData.message}"`
-          : isSubscription
-          ? `**${kofiData.from_name || t("Anonymous")}** ${t(
-              "has subscribed to the"
-            )} ${kofiData.tier_name || ""} ${t("tier!")} 🎉`
-          : `${t("Thanks for the support!")} 💖`
-      )
-      .setURL(kofiData.url || "https://ko-fi.com/")
-      .setFooter(t("{KOFI_NAME} Support"), KOFI_LOGO)
-      .setTimestamp();
+      .setThumbnail(KOFI_LOGO);
+
+    // Add message or default text to description
+    if (kofiData.message && kofiData.message.trim()) {
+      embed.setDescription(`"${kofiData.message}"`);
+    } else if (isSubscription) {
+      embed.setDescription(
+        `**${kofiData.from_name || t("Anonymous")}** ${t(
+          "has subscribed to the"
+        )} ${kofiData.tier_name || ""} ${t("tier!")} 🎉`
+      );
+    } else {
+      embed.setDescription(`${t("Thanks for the support!")} 💖`);
+    }
+
+    // Set URL and footer
+    embed.setURL(kofiData.url || "https://ko-fi.com/");
+    embed.setFooter(t("{KOFI_NAME} Support"), KOFI_LOGO);
+    embed.setTimestamp();
 
     // Add main fields
     embed.addField(t("From"), kofiData.from_name || t("Anonymous"), true);
@@ -450,6 +458,11 @@ app.post("/webhook", async (req, res) => {
       embed.addField(t("Transaction ID"), kofiData.kofi_transaction_id, false);
     }
 
+    // Add message as separate field if not used in description
+    if (kofiData.message && kofiData.message.trim() && isSubscription) {
+      embed.addField(t("Message"), kofiData.message, false);
+    }
+
     // Send the webhook
     await webhook.send(embed);
     console.log("Discord webhook sent successfully");
@@ -462,10 +475,16 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Handle 404s
+// Handle 404s - MUST be after all other routes
 app.use((req, res) => {
   console.log(`404 Not Found: ${req.method} ${req.path}`);
   res.status(404).json({ success: false, error: "Not found" });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Server error:", err);
+  res.status(500).json({ success: false, error: "Internal server error" });
 });
 
 // Start the server
@@ -477,7 +496,10 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server language: ${LANGUAGE}`);
   console.log(`Customized name: ${KOFI_NAME}`);
   console.log(`Server started at: ${new Date().toISOString()}`);
-  console.log(`Try accessing: http://localhost:${PORT}/`);
+  console.log(`Root endpoint available at http://localhost:${PORT}/`);
+  console.log(
+    `Health check endpoint available at http://localhost:${PORT}/health`
+  );
   console.log(
     `Config status: ${
       configPath ? "Loaded from " + configPath : "Using environment variables"
