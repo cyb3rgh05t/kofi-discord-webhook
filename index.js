@@ -28,11 +28,10 @@ function loadConfig() {
     path.join(process.cwd(), "/.env"), // Default .env in root
   ];
 
-  console.log("Looking for config files in:");
+  console.log("Looking for config file:");
 
   // Try each possible config path
   for (const configPath of configPaths) {
-    console.log(`- ${configPath}`);
     if (fs.existsSync(configPath)) {
       console.log(`Config file found at: ${configPath}`);
       dotenv.config({ path: configPath });
@@ -62,17 +61,18 @@ const WEBHOOK_USERNAME =
   process.env.WEBHOOK_USERNAME || `${KOFI_NAME} Supporter Alert`;
 
 // Log loaded configuration
+console.log("");
 console.log("===== Configuration =====");
 console.log(`VERSION: ${version}`);
 console.log(`PORT: ${PORT}`);
 console.log(`LANGUAGE: ${LANGUAGE}`);
 console.log(`KOFI_NAME: ${KOFI_NAME}`);
 console.log(
-  `WEBHOOK_URL: ${WEBHOOK_URL ? "Set (value hidden)" : "NOT SET - REQUIRED"}`
+  `WEBHOOK_URL: ${WEBHOOK_URL ? "Set [REDACTED]" : "NOT SET - REQUIRED"}`
 );
 console.log(
   `VERIFICATION_TOKEN: ${
-    VERIFICATION_TOKEN ? "Set (value hidden)" : "NOT SET - REQUIRED"
+    VERIFICATION_TOKEN ? "Set [REDACTED]" : "NOT SET - REQUIRED"
   }`
 );
 console.log("=========================");
@@ -531,22 +531,30 @@ app.use((err, req, res, next) => {
 
 // Start the server
 const server = createServer(app);
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", () =>
+{
+    console.log("");
   console.log(
-    `${KOFI_NAME} to Discord webhook service v${version} listening on port ${PORT}`
+    `Ko-Fi to Discord webhook service v${version} listening on port ${PORT}`
   );
+  console.log("");
   console.log(`Server language: ${LANGUAGE}`);
   console.log(`Customized name: ${KOFI_NAME}`);
   console.log(`Server started at: ${new Date().toISOString()}`);
-  console.log(`Root endpoint available at http://localhost:${PORT}/`);
+  console.log("");
+  console.log("===== GET Enpoints =====");
+  console.log(`Root endpoint available at http://0.0.0.0:${PORT}/`);
+  console.log(`Test endpoint available at http://0.0.0.0:${PORT}/test-discord`);
   console.log(
-    `Health check endpoint available at http://localhost:${PORT}/health`
+    `Health check endpoint available at http://0.0.0.0:${PORT}/health`
   );
+  console.log("");
+  console.log("===== POST Enpoints =====");
   console.log(
-    `Config status: ${
-      configPath ? "Loaded from " + configPath : "Using environment variables"
-    }`
+    `Webhook Post endpoint available at http://0.0.0.0:${PORT}/webhook`
   );
+  console.log("======================");
+  console.log("");
 });
 
 // Handle graceful shutdown

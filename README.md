@@ -2,7 +2,7 @@
 
 A lightweight service that forwards Ko-fi donations, subscriptions, and shop orders to Discord with beautiful, customizable embeds.
 
-![Example of Discord embed](https://storage.ko-fi.com/cdn/brandasset/kofi_s_logo_nolabel.png)
+![Example of Discord embed](embed/embed.png)
 
 ## Features
 
