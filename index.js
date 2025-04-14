@@ -6,6 +6,19 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 
+// Get package version
+let version = "unknown";
+try {
+  // Try to read package.json for version info
+  const packagePath = path.join(process.cwd(), "package.json");
+  if (fs.existsSync(packagePath)) {
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    version = packageJson.version || "unknown";
+  }
+} catch (error) {
+  console.error("Error reading package.json:", error.message);
+}
+
 // Load environment variables from multiple possible locations
 function loadConfig() {
   // Possible locations for the .env file (in order of precedence)
@@ -50,6 +63,7 @@ const WEBHOOK_USERNAME =
 
 // Log loaded configuration
 console.log("===== Configuration =====");
+console.log(`VERSION: ${version}`);
 console.log(`PORT: ${PORT}`);
 console.log(`LANGUAGE: ${LANGUAGE}`);
 console.log(`KOFI_NAME: ${KOFI_NAME}`);
@@ -200,6 +214,7 @@ app.get("/", (req, res) => {
   console.log("Root endpoint accessed");
   res.status(200).json({
     message: `${KOFI_NAME} to Discord webhook service is online!`,
+    version: version,
     language: LANGUAGE,
     kofiName: KOFI_NAME,
   });
@@ -210,6 +225,7 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
     message: `${KOFI_NAME} to Discord webhook service is running`,
+    version: version,
     language: LANGUAGE,
     kofiName: KOFI_NAME,
   });
@@ -218,6 +234,7 @@ app.get("/health", (req, res) => {
 // Configuration info endpoint
 app.get("/config", (req, res) => {
   res.status(200).json({
+    version: version,
     configLoaded: configPath !== null,
     configPath: configPath,
     language: LANGUAGE,
@@ -226,6 +243,31 @@ app.get("/config", (req, res) => {
     hasWebhookUrl: !!WEBHOOK_URL,
     hasVerificationToken: !!VERIFICATION_TOKEN,
   });
+});
+
+// Debug endpoint to test Discord webhook directly
+app.get("/test-discord", async (req, res) => {
+  try {
+    console.log("Testing Discord webhook directly");
+
+    const embed = new MessageBuilder()
+      .setTitle(`${KOFI_NAME} Test Message`)
+      .setDescription(
+        `This is a test message from the webhook service v${version}`
+      )
+      .setColor(0x29abe0)
+      .setTimestamp();
+
+    await webhook.send(embed);
+    console.log("Discord test message sent successfully");
+
+    res
+      .status(200)
+      .json({ success: true, message: "Discord test message sent" });
+  } catch (error) {
+    console.error("Error sending Discord test message:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Format timestamp nicely based on language
@@ -413,7 +455,7 @@ app.post("/webhook", async (req, res) => {
 
     // Set URL and footer
     embed.setURL(kofiData.url || "https://ko-fi.com/");
-    embed.setFooter(t("{KOFI_NAME} Support"), KOFI_LOGO);
+    embed.setFooter(`${t("{KOFI_NAME} Support")} | v${version}`, KOFI_LOGO);
     embed.setTimestamp();
 
     // Add main fields
@@ -491,7 +533,7 @@ app.use((err, req, res, next) => {
 const server = createServer(app);
 server.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `${KOFI_NAME} to Discord webhook service listening on port ${PORT}`
+    `${KOFI_NAME} to Discord webhook service v${version} listening on port ${PORT}`
   );
   console.log(`Server language: ${LANGUAGE}`);
   console.log(`Customized name: ${KOFI_NAME}`);

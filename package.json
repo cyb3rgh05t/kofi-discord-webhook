@@ -1,6 +1,6 @@
 {
   "name": "kofi-discord-webhook",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Ko-fi to Discord webhook integration",
   "main": "index.js",
   "type": "module",
