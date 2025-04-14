@@ -19,7 +19,7 @@ COPY . .
 
 # Expose the development port
 # This might be different from production port
-EXPOSE 3000
+EXPOSE 3033
 
 # Enable Node.js debugging
 ENV NODE_ENV=development

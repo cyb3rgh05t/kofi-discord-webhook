@@ -26,6 +26,20 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging middleware (for debugging)
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// Root endpoint - DEFINED FIRST to ensure it's not blocked by other routes
+app.get("/", (req, res) => {
+  console.log("Root endpoint accessed");
+  res
+    .status(200)
+    .json({ message: "Ko-Fi to Discord webhook service is online!" });
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res
@@ -34,13 +48,6 @@ app.get("/health", (req, res) => {
       status: "OK",
       message: "Ko-Fi to Discord webhook service is running",
     });
-});
-
-// Root endpoint
-app.get("/", (req, res) => {
-  res
-    .status(200)
-    .json({ message: "Ko-Fi to Discord webhook service is online!" });
 });
 
 // Ko-fi webhook endpoint
@@ -120,15 +127,26 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Handle 404s
+// Handle 404s - MUST be after all other routes
 app.use((req, res) => {
+  console.log(`404 Not Found: ${req.method} ${req.path}`);
   res.status(404).json({ success: false, error: "Not found" });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Server error:", err);
+  res.status(500).json({ success: false, error: "Internal server error" });
 });
 
 // Start the server
 const server = createServer(app);
 server.listen(PORT, () => {
   console.log(`Ko-Fi to Discord webhook service listening on port ${PORT}`);
+  console.log(`Root endpoint available at http://localhost:${PORT}/`);
+  console.log(
+    `Health check endpoint available at http://localhost:${PORT}/health`
+  );
 });
 
 // Handle graceful shutdown
