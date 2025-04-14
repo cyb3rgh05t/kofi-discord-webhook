@@ -1,0 +1,24 @@
+FROM node:18-alpine
+
+LABEL maintainer="cyb3rgh05t"
+LABEL org.opencontainers.image.source="https://github.com/cyb3rgh05t/kofi-discord-webhook"
+
+# Create app directory
+WORKDIR /app
+
+# Install app dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy app source
+COPY . .
+
+# Run as non-root user for better security
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+# Expose the port the app runs on
+EXPOSE 3033
+
+# Command to run the application
+CMD ["node", "index.js"]

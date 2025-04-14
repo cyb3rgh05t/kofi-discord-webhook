@@ -1,0 +1,241 @@
+name: Build Docker Image
+
+on:
+  push:
+    branches-ignore:
+      - "dependabot/**"
+    branches:
+      - "main"
+      - "dev"
+    tags:
+      - "v*" # Automatically triggers on new version tags (v1.2.0, etc.)
+    paths-ignore:
+      - ".github/**"
+      - "LICENSE"
+      - "**.md"
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g., v1.2.0)"
+        required: false
+      branch:
+        description: "Branch to build (main or dev)"
+        required: false
+        default: "main"
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - uses: FranzDiebold/github-env-vars-action@v2.8.0
+
+      - name: Determine Image Tags and Dockerfile
+        id: prep
+        run: |
+          REPO=$CI_REPOSITORY_NAME
+          DOCKER_IMAGE=ghcr.io/${{ github.repository_owner }}/${REPO}
+
+          # Check for workflow_dispatch with inputs first
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
+            # Use provided tag as is, keeping v prefix
+            TAG="${{ github.event.inputs.tag }}"
+            VERSION="${TAG}"
+            TAGS="${DOCKER_IMAGE}:${VERSION},${DOCKER_IMAGE}:latest"
+            # For tags, use production Dockerfile
+            DOCKERFILE="Dockerfile"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.branch }}" ]]; then
+            VERSION="${{ github.event.inputs.branch }}"
+            TAGS="${DOCKER_IMAGE}:${VERSION}"
+            # For workflow dispatch, use the appropriate Dockerfile based on branch
+            if [[ "${{ github.event.inputs.branch }}" == "dev" ]]; then
+              DOCKERFILE="Dockerfile.development"
+            else
+              DOCKERFILE="Dockerfile"
+            fi
+          # Then check git refs
+          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            # For main branch, just use latest
+            VERSION="latest"
+            TAGS="${DOCKER_IMAGE}:latest"
+            # Use production Dockerfile for main branch
+            DOCKERFILE="Dockerfile"
+          elif [[ "$GITHUB_REF" == refs/heads/dev ]]; then
+            # For dev branch, only use dev tag
+            VERSION="dev"
+            TAGS="${DOCKER_IMAGE}:dev"
+            # Use development Dockerfile for dev branch
+            DOCKERFILE="Dockerfile.development"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # Extract the tag and keep v prefix
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG}"
+            TAGS="${DOCKER_IMAGE}:${VERSION},${DOCKER_IMAGE}:latest"
+            # Use production Dockerfile for tagged releases
+            DOCKERFILE="Dockerfile"
+          else
+            # For any other branch, use branch name
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            VERSION="${BRANCH}"
+            TAGS="${DOCKER_IMAGE}:${BRANCH}"
+            # Default to development Dockerfile for other branches
+            DOCKERFILE="Dockerfile.development"
+          fi
+
+          CREATED=$(date +'%Y-%m-%dT%H:%M:%SZ')
+
+          # Export the variables
+          echo "::set-output name=tags::${TAGS}"
+          echo "::set-output name=title::${GITHUB_REPOSITORY}"
+          echo "::set-output name=version::${VERSION}"
+          echo "::set-output name=created::${CREATED}"
+          echo "::set-output name=dockerfile::${DOCKERFILE}"
+          echo "DOCKER_TAGS=${TAGS}" >> $GITHUB_ENV
+          echo "DOCKERFILE=${DOCKERFILE}" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PACKAGES }}
+
+      - name: Build and push GHCR.io
+        id: docker_build
+        uses: docker/build-push-action@v6.15.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: .
+          file: ./${{ env.DOCKERFILE }}
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          tags: ${{ steps.prep.outputs.tags }}
+          build-args: |
+            COMMIT_TAG=${{ github.sha }}
+            VERSION=${{ env.RELEASE_VERSION }}
+          labels: |
+            org.opencontainers.image.title=${{ steps.prep.outputs.title }}
+            org.opencontainers.image.version=${{ steps.prep.outputs.version }}
+            org.opencontainers.image.created=${{ steps.prep.outputs.created }}
+            org.opencontainers.image.description=Docker Uploader - Cloud Storage Management
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
+
+      - name: Send Enhanced Discord Notification
+        if: success()
+        run: |
+          # Get short SHA - fix the variable capture
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          # Create commit link properly formatted for the Discord notification
+          COMMIT_LINK="\`${SHORT_SHA}\`"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+
+          # Determine branch and tags info - we need to use string values for colors
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            BRANCH="main"
+            BRANCH_COLOR="4885929"  # Decimal for Green
+            IMAGE_TAGS="latest"
+          elif [[ "$GITHUB_REF" == refs/heads/dev ]]; then
+            BRANCH="dev"
+            BRANCH_COLOR="16753920"  # Decimal for Orange
+            IMAGE_TAGS="dev"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            BRANCH="${GITHUB_REF#refs/tags/}"
+            BRANCH_COLOR="2201331"   # Decimal for Blue
+            # Keep v prefix for tags
+            IMAGE_TAGS="${BRANCH}, latest"
+          else
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            BRANCH_COLOR="10233776"  # Decimal for Purple
+            IMAGE_TAGS="${BRANCH}"
+          fi
+
+          # Create a simpler JSON payload with less string manipulation in jq
+          cat > discord-payload.json << EOF
+          {
+            "embeds": [{
+              "title": "🚀 Docker Build Success: ${{ github.repository }}",
+              "color": $BRANCH_COLOR,
+              "description": "A new Docker image has been built and pushed to the container registry.",
+              "fields": [
+                {
+                  "name": "🏷️ Version",
+                  "value": "${{ env.RELEASE_VERSION }}",
+                  "inline": true
+                },
+                {
+                  "name": "🔖 Branch/Tag",
+                  "value": "$BRANCH",
+                  "inline": true
+                },
+                {
+                  "name": "🧠 Commit",
+                  "value": "[\`$SHORT_SHA\`]($COMMIT_URL)",
+                  "inline": true
+                },
+                {
+                  "name": "🏙️ Image",
+                  "value": "ghcr.io/${{ github.repository }}",
+                  "inline": false
+                },
+                {
+                  "name": "📋 Tags",
+                  "value": "$IMAGE_TAGS",
+                  "inline": false
+                }
+              ],
+              "thumbnail": {
+                "url": "https://storage.ko-fi.com/cdn/brandasset/kofi_s_logo_nolabel.png"
+              },
+              "footer": {
+                "text": "Built with ❤️ by cyb3rgh05t",
+                "icon_url": "https://github.com/${{ github.repository_owner }}.png"
+              },
+              "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            }]
+          }
+          EOF
+
+          # Send the webhook
+          curl -X POST ${{ secrets.DISCORD_WEBHOOK }} \
+            -H "Content-Type: application/json" \
+            -d @discord-payload.json
