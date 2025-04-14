@@ -1,0 +1,66 @@
+version: "3"
+services:
+  kofi-discord-webhook:
+    hostname: "kofi-discord-webhook"
+    container_name: "kofi-discord-webhook"
+    environment:
+      - "PGID=1000"
+      - "PUID=1000"
+      - "TZ=Europe/Berlin"
+      - "PORT=3033"
+      - "DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1224258236736339968/1hKvRDIxtbXC4vxX9RMGz-I5SP-4pTfDcoCNet9OtpQul7_nUpNtfIN2cyT6yq9KYAZW"
+      - "KOFI_VERIFICATION_TOKEN=14fae4d3-03bc-4662-8a33-0b6765f93e43"
+      - "NODE_ENV=production"
+      - "DEBUG=true"
+      - "LANGUAGE=de"
+      # Custom Ko-fi name example (uncomment to use)
+      # - "KOFI_NAME=BuyMeACoffee"
+      # - "KOFI_LOGO=https://your-custom-logo-url.com/logo.png"
+      # - "WEBHOOK_USERNAME=BuyMeACoffee Alert"
+    networks:
+      - proxy
+    ports:
+      - "3033:3033"
+    image: "ghcr.io/cyb3rgh05t/kofi-discord-webhook:latest"
+    restart: "unless-stopped"
+    volumes:
+      - "/opt/appdata/kofi-discord-webhook/config:/app/config"
+      - "/opt/appdata/kofi-discord-webhook/logs:/app/logs"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "dockupdater.enable=true"
+
+      # Main router (with authentication) for general access
+      - "traefik.http.routers.kofi-discord-webhook-rtr.entrypoints=https"
+      - "traefik.http.routers.kofi-discord-webhook-rtr.rule=Host(`kofi-discord-webhook.${DOMAIN}`) && PathPrefix(`/`) && !PathPrefix(`/webhook`)"
+      - "traefik.http.routers.kofi-discord-webhook-rtr.tls=true"
+      - "traefik.http.routers.kofi-discord-webhook-rtr.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.kofi-discord-webhook-rtr.middlewares=chain-authelia@file"
+      - "traefik.http.routers.kofi-discord-webhook-rtr.service=kofi-discord-webhook-svc"
+
+      # Webhook router (no authentication) for Ko-fi access
+      - "traefik.http.routers.kofi-webhook-rtr.entrypoints=https"
+      - "traefik.http.routers.kofi-webhook-rtr.rule=Host(`kofi-discord-webhook.${DOMAIN}`) && PathPrefix(`/webhook`)"
+      - "traefik.http.routers.kofi-webhook-rtr.tls=true"
+      - "traefik.http.routers.kofi-webhook-rtr.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.kofi-webhook-rtr.priority=100"
+      - "traefik.http.routers.kofi-webhook-rtr.service=kofi-discord-webhook-svc"
+
+      # Common service configuration
+      - "traefik.http.services.kofi-discord-webhook-svc.loadbalancer.server.port=3033"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3033/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+networks:
+  proxy:
+    driver: bridge
+    external: true
