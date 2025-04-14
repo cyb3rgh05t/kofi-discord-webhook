@@ -51,7 +51,7 @@ jobs:
             VERSION="${TAG}"
             TAGS="${DOCKER_IMAGE}:${VERSION},${DOCKER_IMAGE}:latest"
             # For tags, use production Dockerfile
-            DOCKERFILE="Dockerfile"
+            DOCKERFILE="Dockerfile.production"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.branch }}" ]]; then
             VERSION="${{ github.event.inputs.branch }}"
             TAGS="${DOCKER_IMAGE}:${VERSION}"
@@ -59,15 +59,15 @@ jobs:
             if [[ "${{ github.event.inputs.branch }}" == "dev" ]]; then
               DOCKERFILE="Dockerfile.development"
             else
-              DOCKERFILE="Dockerfile"
+              DOCKERFILE="Dockerfile.production"
             fi
           # Then check git refs
           elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
-            # For main branch, just use latest
+            # For main branch, only use latest tag (not 'main')
             VERSION="latest"
             TAGS="${DOCKER_IMAGE}:latest"
             # Use production Dockerfile for main branch
-            DOCKERFILE="Dockerfile"
+            DOCKERFILE="Dockerfile.production"
           elif [[ "$GITHUB_REF" == refs/heads/dev ]]; then
             # For dev branch, only use dev tag
             VERSION="dev"
@@ -80,7 +80,7 @@ jobs:
             VERSION="${TAG}"
             TAGS="${DOCKER_IMAGE}:${VERSION},${DOCKER_IMAGE}:latest"
             # Use production Dockerfile for tagged releases
-            DOCKERFILE="Dockerfile"
+            DOCKERFILE="Dockerfile.production"
           else
             # For any other branch, use branch name
             BRANCH="${GITHUB_REF#refs/heads/}"
@@ -171,7 +171,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/heads/main ]]; then
             BRANCH="main"
             BRANCH_COLOR="4885929"  # Decimal for Green
-            IMAGE_TAGS="latest"
+            IMAGE_TAGS="latest"  # Only tag as latest for main branch
           elif [[ "$GITHUB_REF" == refs/heads/dev ]]; then
             BRANCH="dev"
             BRANCH_COLOR="16753920"  # Decimal for Orange
@@ -191,7 +191,7 @@ jobs:
           cat > discord-payload.json << EOF
           {
             "embeds": [{
-              "title": "🚀 Docker Build Success: ${{ github.repository }}",
+              "title": "🚀 New Release: Ko-Fi Discord Webhook",
               "color": $BRANCH_COLOR,
               "description": "A new Docker image has been built and pushed to the container registry.",
               "fields": [

@@ -1,0 +1,30 @@
+FROM node:20-alpine
+
+LABEL maintainer="cyb3rgh05t"
+LABEL org.opencontainers.image.source="https://github.com/cyb3rgh05t/kofi-discord-webhook"
+
+# Set working directory
+WORKDIR /app
+
+# Add necessary development tools
+RUN apk add --no-cache git curl nano
+
+# Install app dependencies including devDependencies
+# Copy package files first to leverage Docker cache
+COPY package*.json ./
+RUN npm install
+
+# Copy app source
+COPY . .
+
+# Expose the development port
+# This might be different from production port
+EXPOSE 3000
+
+# Enable Node.js debugging
+ENV NODE_ENV=development
+ENV DEBUG=*
+
+# Set command to run for development
+# Using nodemon for auto-restart on file changes
+CMD ["npx", "nodemon", "--inspect=0.0.0.0:9229", "index.js"]
