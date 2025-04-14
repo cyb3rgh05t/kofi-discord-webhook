@@ -1,0 +1,130 @@
+name: Version and Tag Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "package.json"
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: "Force update even if tag exists"
+        required: false
+        default: "false"
+      version_override:
+        description: "Override version (leave empty to use package.json)"
+        required: false
+        default: ""
+
+jobs:
+  create-tag-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PACKAGES }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Extract version from package.json
+        id: package-version
+        run: |
+          if [[ -n "${{ github.event.inputs.version_override }}" ]]; then
+            VERSION="${{ github.event.inputs.version_override }}"
+            echo "Using overridden version: $VERSION"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            echo "Using version from package.json: $VERSION"
+          fi
+
+          # Remove -dev suffix if present
+          CLEAN_VERSION="${VERSION//-dev/}"
+          if [[ "$CLEAN_VERSION" != "$VERSION" ]]; then
+            echo "Removed -dev suffix: $CLEAN_VERSION"
+            VERSION="$CLEAN_VERSION"
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "TAG_NAME=v$VERSION" >> $GITHUB_ENV
+
+      - name: Check if tag already exists
+        id: check-tag
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ env.TAG_NAME }}$"; then
+            echo "TAG_EXISTS=true" >> $GITHUB_ENV
+            echo "Tag ${{ env.TAG_NAME }} already exists"
+          else
+            echo "TAG_EXISTS=false" >> $GITHUB_ENV
+            echo "Tag ${{ env.TAG_NAME }} does not exist yet"
+          fi
+
+      - name: Create and push tag
+        if: env.TAG_EXISTS == 'false' || github.event.inputs.force_update == 'true'
+        run: |
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Create an annotated tag
+          COMMIT_MSG="Release ${{ env.TAG_NAME }}"
+
+          # Delete tag if it exists and force update is enabled
+          if [[ "${{ env.TAG_EXISTS }}" == "true" && "${{ github.event.inputs.force_update }}" == "true" ]]; then
+            echo "Force updating existing tag"
+            git tag -d ${{ env.TAG_NAME }} || true
+            git push --delete origin ${{ env.TAG_NAME }} || true
+          fi
+
+          # Create and push the tag
+          git tag -a ${{ env.TAG_NAME }} -m "$COMMIT_MSG"
+          git push origin ${{ env.TAG_NAME }}
+
+          echo "Created and pushed tag ${{ env.TAG_NAME }}"
+          echo "This will trigger the Docker build workflow for the new tag"
+
+      - name: Create GitHub Release
+        if: env.TAG_EXISTS == 'false' || github.event.inputs.force_update == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: Release ${{ env.TAG_NAME }}
+          body: |
+            ## Release ${{ env.TAG_NAME }}
+
+            This release is automatically generated from the version in package.json.
+
+            ### What's Changed
+
+            * See commit history for changes since the last release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGES }}
+
+      - name: Verify Docker Build Workflow
+        run: |
+          echo "Verifying dockerbuild.yml workflow configuration..."
+          if grep -q 'tags:.*"v\*"' .github/workflows/dockerbuild.yml; then
+            echo "✅ Docker build workflow is configured to run on tag events"
+            echo "The v$VERSION tag we just created will trigger the Docker build workflow"
+            echo "This will create Docker images tagged as:"
+            echo "  - v$VERSION"
+            echo "  - latest (if it's a tag on main branch)"
+          else
+            echo "⚠️ Warning: Docker build workflow may not be configured to run on tag events"
+            echo "Please verify that .github/workflows/dockerbuild.yml includes the following:"
+            echo ""
+            echo "on:"
+            echo "  push:"
+            echo "    tags:"
+            echo "      - \"v*\"  # Automatically triggers on new version tags"
+            echo ""
+          fi
